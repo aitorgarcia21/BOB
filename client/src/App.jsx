@@ -20,12 +20,16 @@ function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const defaultStripeMcpUrl = import.meta.env.VITE_MCP_STRIPE_URL || '';
+  const defaultSupabaseMcpUrl = import.meta.env.VITE_MCP_SUPABASE_URL || '';
+  const defaultGithubMcpUrl = import.meta.env.VITE_MCP_GITHUB_URL || '';
+
   const [mcpConfig, setMcpConfig] = useState({
-    stripe_mcp_url: '',
+    stripe_mcp_url: defaultStripeMcpUrl,
     stripe_mcp_key: '',
-    supabase_mcp_url: '',
+    supabase_mcp_url: defaultSupabaseMcpUrl,
     supabase_mcp_key: '',
-    github_mcp_url: '',
+    github_mcp_url: defaultGithubMcpUrl,
     github_mcp_key: ''
   });
 
@@ -80,6 +84,15 @@ function App() {
 
     loadConfig();
   }, [API_URL, user]);
+
+  useEffect(() => {
+    setMcpConfig((prev) => ({
+      ...prev,
+      stripe_mcp_url: prev.stripe_mcp_url || defaultStripeMcpUrl,
+      supabase_mcp_url: prev.supabase_mcp_url || defaultSupabaseMcpUrl,
+      github_mcp_url: prev.github_mcp_url || defaultGithubMcpUrl
+    }));
+  }, [defaultStripeMcpUrl, defaultSupabaseMcpUrl, defaultGithubMcpUrl]);
 
   useEffect(() => {
     const loadModels = async () => {
