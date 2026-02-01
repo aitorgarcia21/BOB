@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Code2, Sparkles, MessageSquare, Wrench, BookOpen, Database, RefreshCcw } from 'lucide-react';
 import Editor from '@monaco-editor/react';
+import { supabase } from './lib/supabase';
 
 function App() {
   const [activeTab, setActiveTab] = useState('generate');
@@ -15,6 +16,16 @@ function App() {
   const [selectedModel, setSelectedModel] = useState('');
   const [useMemory, setUseMemory] = useState(true);
   const [sessionId, setSessionId] = useState('');
+  const [user, setUser] = useState(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [mcpConfig, setMcpConfig] = useState({
+    stripe_mcp_url: '',
+    stripe_mcp_key: '',
+    supabase_mcp_url: '',
+    supabase_mcp_key: ''
+  });
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
   const defaultSession = useMemo(() => `session-${crypto.randomUUID()}`, []);
@@ -22,6 +33,49 @@ function App() {
   useEffect(() => {
     setSessionId(defaultSession);
   }, [defaultSession]);
+
+  useEffect(() => {
+    const initAuth = async () => {
+      const { data } = await supabase.auth.getSession();
+      setUser(data.session?.user || null);
+    };
+
+    initAuth();
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const loadConfig = async () => {
+      if (!user) return;
+      try {
+        const session = await supabase.auth.getSession();
+        const token = session.data.session?.access_token;
+        if (!token) return;
+        const response = await fetch(`${API_URL}/api/mcp-config`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data?.config) {
+          setMcpConfig({
+            stripe_mcp_url: data.config.stripe_mcp_url || '',
+            stripe_mcp_key: data.config.stripe_mcp_key || '',
+            supabase_mcp_url: data.config.supabase_mcp_url || '',
+            supabase_mcp_key: data.config.supabase_mcp_key || ''
+          });
+        }
+      } catch (error) {
+        console.error('MCP config load error:', error);
+      }
+    };
+
+    loadConfig();
+  }, [API_URL, user]);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -39,6 +93,50 @@ function App() {
 
     loadModels();
   }, [API_URL]);
+
+  const handleSignIn = async () => {
+    if (!email || !password) return;
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      alert(error.message);
+    }
+    setAuthLoading(false);
+  };
+
+  const handleSignUp = async () => {
+    if (!email || !password) return;
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signUp({ email, password });
+    if (error) {
+      alert(error.message);
+    } else {
+      alert('Compte créé. Vérifie ton email pour confirmer.');
+    }
+    setAuthLoading(false);
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const handleSaveMcpConfig = async () => {
+    if (!user) return;
+    const session = await supabase.auth.getSession();
+    const token = session.data.session?.access_token;
+    if (!token) return;
+    const response = await fetch(`${API_URL}/api/mcp-config`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(mcpConfig)
+    });
+    if (!response.ok) {
+      alert('Erreur lors de la sauvegarde MCP');
+    }
+  };
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
@@ -165,6 +263,102 @@ function App() {
           </div>
           <p className="text-gray-400">Your AI-powered coding assistant</p>
         </header>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="bg-slate-800/60 rounded-xl p-5">
+            <h2 className="font-semibold mb-3">Account</h2>
+            {user ? (
+              <div className="space-y-3">
+                <p className="text-sm text-gray-300">Connecté : {user.email}</p>
+                <button
+                  onClick={handleSignOut}
+                  className="w-full px-4 py-2 bg-slate-700 rounded-lg hover:bg-slate-600 transition"
+                >
+                  Se déconnecter
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Email"
+                  className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 focus:border-purple-500 outline-none"
+                />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Mot de passe"
+                  className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 focus:border-purple-500 outline-none"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSignIn}
+                    disabled={authLoading}
+                    className="flex-1 px-4 py-2 bg-purple-600 rounded-lg font-semibold hover:opacity-90 transition"
+                  >
+                    Login
+                  </button>
+                  <button
+                    onClick={handleSignUp}
+                    disabled={authLoading}
+                    className="flex-1 px-4 py-2 bg-slate-700 rounded-lg hover:bg-slate-600 transition"
+                  >
+                    Sign up
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-slate-800/60 rounded-xl p-5 lg:col-span-2">
+            <h2 className="font-semibold mb-3">MCP Configuration (Stripe + Supabase)</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <input
+                type="text"
+                value={mcpConfig.stripe_mcp_url}
+                onChange={(e) => setMcpConfig((prev) => ({ ...prev, stripe_mcp_url: e.target.value }))}
+                placeholder="Stripe MCP URL"
+                className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 focus:border-purple-500 outline-none"
+              />
+              <input
+                type="password"
+                value={mcpConfig.stripe_mcp_key}
+                onChange={(e) => setMcpConfig((prev) => ({ ...prev, stripe_mcp_key: e.target.value }))}
+                placeholder="Stripe MCP Key"
+                className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 focus:border-purple-500 outline-none"
+              />
+              <input
+                type="text"
+                value={mcpConfig.supabase_mcp_url}
+                onChange={(e) => setMcpConfig((prev) => ({ ...prev, supabase_mcp_url: e.target.value }))}
+                placeholder="Supabase MCP URL"
+                className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 focus:border-purple-500 outline-none"
+              />
+              <input
+                type="password"
+                value={mcpConfig.supabase_mcp_key}
+                onChange={(e) => setMcpConfig((prev) => ({ ...prev, supabase_mcp_key: e.target.value }))}
+                placeholder="Supabase MCP Key"
+                className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 focus:border-purple-500 outline-none"
+              />
+            </div>
+            <div className="mt-3">
+              <button
+                onClick={handleSaveMcpConfig}
+                disabled={!user}
+                className="px-4 py-2 bg-purple-600 rounded-lg font-semibold hover:opacity-90 transition disabled:opacity-50"
+              >
+                Sauvegarder MCP
+              </button>
+              {!user && (
+                <p className="text-xs text-gray-400 mt-2">Connecte-toi pour sauvegarder la config.</p>
+              )}
+            </div>
+          </div>
+        </div>
 
         <div className="flex space-x-2 mb-6">
           {tabs.map(tab => (

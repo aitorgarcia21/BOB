@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import { appendSessionMemory, clearSessionMemory, getSessionMemory } from './memoryStore.js';
+import { supabaseAdmin } from './supabase.js';
 
 dotenv.config();
 
@@ -20,6 +21,77 @@ const AVAILABLE_MODELS = (process.env.AI_MODELS || 'gpt-4o-mini,gpt-4o,gpt-4o-re
 
 app.use(cors());
 app.use(express.json());
+
+const requireAuth = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ error: 'Missing Authorization token' });
+    }
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    if (error || !data?.user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    req.user = data.user;
+    return next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+};
+
+// Get MCP config for current user
+app.get('/api/mcp-config', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('mcp_configs')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({ config: data || null });
+  } catch (error) {
+    console.error('MCP config fetch error:', error);
+    res.status(500).json({ error: 'Failed to load MCP config' });
+  }
+});
+
+// Upsert MCP config for current user
+app.put('/api/mcp-config', requireAuth, async (req, res) => {
+  try {
+    const {
+      stripe_mcp_url,
+      stripe_mcp_key,
+      supabase_mcp_url,
+      supabase_mcp_key
+    } = req.body;
+
+    const { data, error } = await supabaseAdmin
+      .from('mcp_configs')
+      .upsert({
+        user_id: req.user.id,
+        stripe_mcp_url,
+        stripe_mcp_key,
+        supabase_mcp_url,
+        supabase_mcp_key
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({ config: data });
+  } catch (error) {
+    console.error('MCP config update error:', error);
+    res.status(500).json({ error: 'Failed to save MCP config' });
+  }
+});
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -180,16 +252,39 @@ app.post('/api/memory/clear', async (req, res) => {
 });
 
 // MCP tool proxy (optional)
-app.post('/api/mcp/execute', async (req, res) => {
+app.post('/api/mcp/execute', requireAuth, async (req, res) => {
   try {
-    const { tool, input } = req.body;
-    if (!process.env.MCP_URL) {
+    const { tool, input, sessionId } = req.body;
+    let mcpUrl = process.env.MCP_URL;
+    let mcpKey = process.env.MCP_KEY;
+
+    const { data } = await supabaseAdmin
+      .from('mcp_configs')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .maybeSingle();
+
+    if (tool?.startsWith('stripe') && data?.stripe_mcp_url) {
+      mcpUrl = data.stripe_mcp_url;
+      mcpKey = data.stripe_mcp_key || mcpKey;
+    }
+
+    if (tool?.startsWith('supabase') && data?.supabase_mcp_url) {
+      mcpUrl = data.supabase_mcp_url;
+      mcpKey = data.supabase_mcp_key || mcpKey;
+    }
+
+    if (!mcpUrl) {
       return res.status(400).json({ error: 'MCP_URL not configured' });
     }
-    const response = await fetch(`${process.env.MCP_URL}/execute`, {
+
+    const response = await fetch(`${mcpUrl}/execute`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tool, input })
+      headers: {
+        'Content-Type': 'application/json',
+        ...(mcpKey ? { Authorization: `Bearer ${mcpKey}` } : {})
+      },
+      body: JSON.stringify({ tool, input, sessionId })
     });
     const data = await response.json();
     res.json(data);

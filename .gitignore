@@ -6,3 +6,4 @@ build
 *.log
 client/dist
 client/node_modules
+data

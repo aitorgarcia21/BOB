@@ -14,7 +14,8 @@
     "lucide-react": "^0.344.0",
     "axios": "^1.6.7",
     "@monaco-editor/react": "^4.6.0",
-    "prismjs": "^1.29.0"
+    "prismjs": "^1.29.0",
+    "@supabase/supabase-js": "^2.39.7"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
