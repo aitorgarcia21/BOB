@@ -8,6 +8,9 @@ AI-powered development studio with code generation, explanation, fixing, and cha
 - **Explain Code**: Paste code and get clear explanations
 - **Fix & Improve**: Automatically fix bugs and improve code quality
 - **AI Chat**: Ask coding questions and get instant answers
+- **Multi-model**: Choose between multiple OpenAI models
+- **Session Memory**: Persistent memory per chat session
+- **MCP Tools (optional)**: Proxy MCP tools from the backend
 - **Monaco Editor**: Professional code editor with syntax highlighting
 - **Multi-language**: JavaScript, TypeScript, Python, Java, C++, Go, Rust
 
@@ -15,7 +18,7 @@ AI-powered development studio with code generation, explanation, fixing, and cha
 
 - **Frontend**: React + Vite + TailwindCSS + Monaco Editor
 - **Backend**: Node.js + Express
-- **AI**: OpenAI GPT-4
+- **AI**: OpenAI GPT-4o family (configurable)
 
 ## Setup
 
@@ -30,6 +33,11 @@ cd client && npm install
 cp .env.example .env
 # Add your OPENAI_API_KEY
 ```
+
+Optional env vars:
+- `AI_MODELS` (comma-separated list)
+- `MEMORY_PATH` (path to JSON memory store)
+- `MCP_URL` (proxy MCP server base URL)
 
 3. **Run development**:
 ```bash
@@ -59,7 +67,10 @@ npm start
 - `POST /api/generate` - Generate code from prompt
 - `POST /api/explain` - Explain code
 - `POST /api/fix` - Fix and improve code
-- `POST /api/chat` - Chat with AI assistant
+- `GET /api/models` - List available models
+- `POST /api/chat` - Chat with AI assistant (supports model + memory)
+- `POST /api/memory/clear` - Clear memory for a session
+- `POST /api/mcp/execute` - Proxy MCP tool execution
 
 ## License
 

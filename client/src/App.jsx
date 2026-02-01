@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Code2, Sparkles, MessageSquare, Wrench, BookOpen } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Code2, Sparkles, MessageSquare, Wrench, BookOpen, Database, RefreshCcw } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 
 function App() {
@@ -11,8 +11,34 @@ function App() {
   const [result, setResult] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
   const [chatMessage, setChatMessage] = useState('');
+  const [models, setModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState('');
+  const [useMemory, setUseMemory] = useState(true);
+  const [sessionId, setSessionId] = useState('');
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const defaultSession = useMemo(() => `session-${crypto.randomUUID()}`, []);
+
+  useEffect(() => {
+    setSessionId(defaultSession);
+  }, [defaultSession]);
+
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/models`);
+        const data = await response.json();
+        setModels(data.models || []);
+        if (data.models?.length) {
+          setSelectedModel(data.models[0]);
+        }
+      } catch (error) {
+        console.error('Model list error:', error);
+      }
+    };
+
+    loadModels();
+  }, [API_URL]);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
@@ -32,6 +58,20 @@ function App() {
       setResult('Error generating code: ' + error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClearMemory = async () => {
+    if (!sessionId) return;
+    try {
+      await fetch(`${API_URL}/api/memory/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId })
+      });
+      setChatHistory([]);
+    } catch (error) {
+      console.error('Memory clear error:', error);
     }
   };
 
@@ -88,7 +128,13 @@ function App() {
       const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: chatMessage, history: chatHistory })
+        body: JSON.stringify({
+          message: chatMessage,
+          history: chatHistory,
+          sessionId,
+          model: selectedModel,
+          useMemory
+        })
       });
       
       const data = await response.json();
@@ -242,6 +288,54 @@ function App() {
                     ))
                   )}
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-2">Model</label>
+                    <select
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-800 rounded-lg border border-slate-700 focus:border-purple-500 outline-none"
+                    >
+                      {models.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-2">Session</label>
+                    <input
+                      type="text"
+                      value={sessionId}
+                      onChange={(e) => setSessionId(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-800 rounded-lg border border-slate-700 focus:border-purple-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center space-x-2 text-sm text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={useMemory}
+                      onChange={(e) => setUseMemory(e.target.checked)}
+                      className="accent-purple-500"
+                    />
+                    <span className="flex items-center space-x-2">
+                      <Database className="w-4 h-4" />
+                      <span>Use memory</span>
+                    </span>
+                  </label>
+                  <button
+                    onClick={handleClearMemory}
+                    className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-slate-700 text-sm hover:bg-slate-600 transition"
+                  >
+                    <RefreshCcw className="w-4 h-4" />
+                    <span>Clear memory</span>
+                  </button>
+                </div>
+
                 <div className="flex space-x-2">
                   <input
                     type="text"

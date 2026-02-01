@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
+import { appendSessionMemory, clearSessionMemory, getSessionMemory } from './memoryStore.js';
 
 dotenv.config();
 
@@ -12,12 +13,22 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+const AVAILABLE_MODELS = (process.env.AI_MODELS || 'gpt-4o-mini,gpt-4o,gpt-4o-realtime-preview')
+  .split(',')
+  .map((model) => model.trim())
+  .filter(Boolean);
+
 app.use(cors());
 app.use(express.json());
 
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'AI Dev Studio API is running' });
+});
+
+// Available models
+app.get('/api/models', (req, res) => {
+  res.json({ models: AVAILABLE_MODELS });
 });
 
 // Generate code with AI
@@ -113,30 +124,78 @@ Return ONLY the fixed code without explanations.`;
 // Chat with AI about code
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, history } = req.body;
+    const { message, history, sessionId, model, useMemory = true } = req.body;
+    const selectedModel = model || AVAILABLE_MODELS[0] || 'gpt-4o-mini';
+    const memory = useMemory && sessionId ? await getSessionMemory(sessionId) : [];
 
     const messages = [
       {
         role: 'system',
         content: 'You are an expert programming assistant. Help users with coding questions, debugging, and best practices.'
       },
+      ...memory,
       ...(history || []),
       { role: 'user', content: message }
     ];
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
+      model: selectedModel,
       messages,
       temperature: 0.7,
       max_tokens: 1500
     });
 
+    const responseText = completion.choices[0].message.content;
+
+    if (useMemory && sessionId) {
+      await appendSessionMemory(sessionId, [
+        { role: 'user', content: message },
+        { role: 'assistant', content: responseText }
+      ]);
+    }
+
     res.json({
-      response: completion.choices[0].message.content
+      response: responseText,
+      model: selectedModel
     });
   } catch (error) {
     console.error('Chat error:', error);
     res.status(500).json({ error: 'Failed to process chat' });
+  }
+});
+
+// Clear memory for a session
+app.post('/api/memory/clear', async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: 'sessionId is required' });
+    }
+    await clearSessionMemory(sessionId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Memory clear error:', error);
+    res.status(500).json({ error: 'Failed to clear memory' });
+  }
+});
+
+// MCP tool proxy (optional)
+app.post('/api/mcp/execute', async (req, res) => {
+  try {
+    const { tool, input } = req.body;
+    if (!process.env.MCP_URL) {
+      return res.status(400).json({ error: 'MCP_URL not configured' });
+    }
+    const response = await fetch(`${process.env.MCP_URL}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool, input })
+    });
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('MCP proxy error:', error);
+    res.status(500).json({ error: 'Failed to execute MCP tool' });
   }
 });
 
