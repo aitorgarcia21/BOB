@@ -14,10 +14,38 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const AVAILABLE_MODELS = (process.env.AI_MODELS || 'gpt-4o-mini,gpt-4o,gpt-4o-realtime-preview')
+const kimiClient = process.env.KIMI_API_KEY
+  ? new OpenAI({
+      apiKey: process.env.KIMI_API_KEY,
+      baseURL: process.env.KIMI_BASE_URL || 'https://api.moonshot.cn/v1'
+    })
+  : null;
+
+const KIMI_MODEL = process.env.KIMI_MODEL || 'kimi-k2.5';
+
+const AVAILABLE_MODELS = (process.env.AI_MODELS || `gpt-4o-mini,gpt-4o,${KIMI_MODEL}`)
   .split(',')
   .map((model) => model.trim())
   .filter(Boolean);
+
+const selectClient = (model) => {
+  if (model?.startsWith('kimi') && kimiClient) {
+    return { client: kimiClient, model };
+  }
+  return { client: openai, model: model || 'gpt-4o-mini' };
+};
+
+const runWithFallback = async (primary, fallback) => {
+  try {
+    return await primary();
+  } catch (error) {
+    if (!fallback) {
+      throw error;
+    }
+    console.warn('Primary model failed, falling back:', error.message);
+    return await fallback();
+  }
+};
 
 app.use(cors());
 app.use(express.json());
@@ -67,7 +95,9 @@ app.put('/api/mcp-config', requireAuth, async (req, res) => {
       stripe_mcp_url,
       stripe_mcp_key,
       supabase_mcp_url,
-      supabase_mcp_key
+      supabase_mcp_key,
+      github_mcp_url,
+      github_mcp_key
     } = req.body;
 
     const { data, error } = await supabaseAdmin
@@ -77,7 +107,9 @@ app.put('/api/mcp-config', requireAuth, async (req, res) => {
         stripe_mcp_url,
         stripe_mcp_key,
         supabase_mcp_url,
-        supabase_mcp_key
+        supabase_mcp_key,
+        github_mcp_url,
+        github_mcp_key
       })
       .select('*')
       .single();
@@ -114,8 +146,9 @@ ${context ? `Context: ${context}` : ''}
 
 Return ONLY the code without explanations, markdown formatting, or code blocks.`;
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
+    const { client, model } = selectClient(process.env.DEFAULT_MODEL || 'gpt-4o-mini');
+    const completion = await client.chat.completions.create({
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt }
@@ -141,8 +174,9 @@ app.post('/api/explain', async (req, res) => {
   try {
     const { code, language } = req.body;
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
+    const { client, model } = selectClient(process.env.DEFAULT_MODEL || 'gpt-4o-mini');
+    const completion = await client.chat.completions.create({
+      model,
       messages: [
         {
           role: 'system',
@@ -174,8 +208,9 @@ app.post('/api/fix', async (req, res) => {
     const systemPrompt = `You are a code debugger and optimizer. ${issue ? `Fix this issue: ${issue}` : 'Improve and fix any issues in the code.'}
 Return ONLY the fixed code without explanations.`;
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
+    const { client, model } = selectClient(process.env.DEFAULT_MODEL || 'gpt-4o-mini');
+    const completion = await client.chat.completions.create({
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Language: ${language || 'JavaScript'}\n\n${code}` }
@@ -210,12 +245,28 @@ app.post('/api/chat', async (req, res) => {
       { role: 'user', content: message }
     ];
 
-    const completion = await openai.chat.completions.create({
-      model: selectedModel,
-      messages,
-      temperature: 0.7,
-      max_tokens: 1500
-    });
+    const useKimi = selectedModel?.startsWith('kimi');
+    const primaryClient = useKimi && kimiClient ? kimiClient : openai;
+    const fallbackClient = useKimi ? openai : kimiClient;
+
+    const completion = await runWithFallback(
+      () =>
+        primaryClient.chat.completions.create({
+          model: useKimi && kimiClient ? selectedModel : selectedModel,
+          messages,
+          temperature: 0.7,
+          max_tokens: 1500
+        }),
+      fallbackClient
+        ? () =>
+            fallbackClient.chat.completions.create({
+              model: process.env.FALLBACK_MODEL || 'gpt-4o-mini',
+              messages,
+              temperature: 0.7,
+              max_tokens: 1500
+            })
+        : null
+    );
 
     const responseText = completion.choices[0].message.content;
 
@@ -274,6 +325,11 @@ app.post('/api/mcp/execute', requireAuth, async (req, res) => {
       mcpKey = data.supabase_mcp_key || mcpKey;
     }
 
+    if (tool?.startsWith('github') && data?.github_mcp_url) {
+      mcpUrl = data.github_mcp_url;
+      mcpKey = data.github_mcp_key || mcpKey;
+    }
+
     if (!mcpUrl) {
       return res.status(400).json({ error: 'MCP_URL not configured' });
     }
@@ -286,8 +342,8 @@ app.post('/api/mcp/execute', requireAuth, async (req, res) => {
       },
       body: JSON.stringify({ tool, input, sessionId })
     });
-    const data = await response.json();
-    res.json(data);
+    const mcpResponse = await response.json();
+    res.json(mcpResponse);
   } catch (error) {
     console.error('MCP proxy error:', error);
     res.status(500).json({ error: 'Failed to execute MCP tool' });

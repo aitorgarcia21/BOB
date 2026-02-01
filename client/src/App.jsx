@@ -24,7 +24,9 @@ function App() {
     stripe_mcp_url: '',
     stripe_mcp_key: '',
     supabase_mcp_url: '',
-    supabase_mcp_key: ''
+    supabase_mcp_key: '',
+    github_mcp_url: '',
+    github_mcp_key: ''
   });
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -66,7 +68,9 @@ function App() {
             stripe_mcp_url: data.config.stripe_mcp_url || '',
             stripe_mcp_key: data.config.stripe_mcp_key || '',
             supabase_mcp_url: data.config.supabase_mcp_url || '',
-            supabase_mcp_key: data.config.supabase_mcp_key || ''
+            supabase_mcp_key: data.config.supabase_mcp_key || '',
+            github_mcp_url: data.config.github_mcp_url || '',
+            github_mcp_key: data.config.github_mcp_key || ''
           });
         }
       } catch (error) {
@@ -342,6 +346,20 @@ function App() {
                 value={mcpConfig.supabase_mcp_key}
                 onChange={(e) => setMcpConfig((prev) => ({ ...prev, supabase_mcp_key: e.target.value }))}
                 placeholder="Supabase MCP Key"
+                className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 focus:border-purple-500 outline-none"
+              />
+              <input
+                type="text"
+                value={mcpConfig.github_mcp_url}
+                onChange={(e) => setMcpConfig((prev) => ({ ...prev, github_mcp_url: e.target.value }))}
+                placeholder="GitHub MCP URL"
+                className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 focus:border-purple-500 outline-none"
+              />
+              <input
+                type="password"
+                value={mcpConfig.github_mcp_key}
+                onChange={(e) => setMcpConfig((prev) => ({ ...prev, github_mcp_key: e.target.value }))}
+                placeholder="GitHub MCP Key"
                 className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 focus:border-purple-500 outline-none"
               />
             </div>
