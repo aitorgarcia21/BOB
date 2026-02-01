@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Code2, Sparkles, MessageSquare, Wrench, BookOpen, Database, RefreshCcw } from 'lucide-react';
+import { Code2, Sparkles, MessageSquare, Wrench, BookOpen, Database, RefreshCcw, Play } from 'lucide-react';
 import Editor from '@monaco-editor/react';
+import { SandpackProvider, SandpackLayout, SandpackPreview, SandpackCodeEditor } from '@codesandbox/sandpack-react';
 import { supabase } from './lib/supabase';
 
 function App() {
@@ -32,6 +33,18 @@ function App() {
     github_mcp_url: defaultGithubMcpUrl,
     github_mcp_key: ''
   });
+  const [showPreview, setShowPreview] = useState(false);
+
+  const getSandpackTemplate = () => {
+    switch (language) {
+      case 'react':
+      case 'typescript':
+        return 'react-ts';
+      case 'javascript':
+      default:
+        return 'vanilla';
+    }
+  };
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
   const defaultSession = useMemo(() => `session-${crypto.randomUUID()}`, []);
@@ -584,14 +597,39 @@ function App() {
 
           {activeTab !== 'chat' && (
             <div>
-              <label className="block text-sm font-medium mb-2">Result</label>
-              <div className="bg-slate-800 rounded-lg p-4 h-[600px] overflow-y-auto">
-                {result ? (
-                  <pre className="text-sm whitespace-pre-wrap text-gray-300">{result}</pre>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium">Preview</label>
+                <button
+                  onClick={() => setShowPreview(!showPreview)}
+                  className="flex items-center space-x-2 px-3 py-1 bg-slate-700 rounded-lg text-sm hover:bg-slate-600 transition"
+                >
+                  <Play className="w-4 h-4" />
+                  <span>{showPreview ? 'Hide Preview' : 'Run Code'}</span>
+                </button>
+              </div>
+              <div className="bg-slate-800 rounded-lg overflow-hidden" style={{ height: '600px' }}>
+                {showPreview && code ? (
+                  <SandpackProvider
+                    template={getSandpackTemplate()}
+                    files={{
+                      [getSandpackTemplate() === 'react-ts' ? 'App.tsx' : 'index.js']: code
+                    }}
+                    options={{
+                      recompileMode: 'delayed',
+                      recompileDelay: 300
+                    }}
+                  >
+                    <SandpackLayout style={{ height: '100%' }}>
+                      <SandpackCodeEditor style={{ height: '100%', fontSize: 14 }} />
+                      <SandpackPreview style={{ height: '100%' }} />
+                    </SandpackLayout>
+                  </SandpackProvider>
                 ) : (
-                  <div className="text-center text-gray-500 mt-20">
-                    <Sparkles className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <p>Results will appear here</p>
+                  <div className="h-full flex items-center justify-center text-gray-500">
+                    <div className="text-center">
+                      <Sparkles className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <p>{code ? 'Click "Run Code" to see preview' : 'Generate some code first!'}</p>
+                    </div>
                   </div>
                 )}
               </div>
